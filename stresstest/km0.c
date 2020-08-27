@@ -60,7 +60,7 @@ static void *childReport   = 0;
 static int* alarmClock     = 0;
 
 /*! Time server to refer IP address to */
-#define TIME_SERVER "207.29.218.95"
+#define TIME_SERVER "x.x.x.x"
 
 /* 262191 pages =  1 Gigabyte of memory;  intended for a VM with 1.2GB of RAM;  Increase as desired */
 
