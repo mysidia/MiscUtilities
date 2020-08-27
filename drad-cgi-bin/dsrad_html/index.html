@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- The above 3 meta tags *must* come first in the head; any other head content must come *after* these tags -->
+    <title>DRADIUS</title>
+
+    <!-- Bootstrap -->
+    <link href="css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- HTML5 shim and Respond.js for IE8 support of HTML5 elements and media queries -->
+    <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
+    <!--[if lt IE 9]>
+      <script src="https://oss.maxcdn.com/html5shiv/3.7.2/html5shiv.min.js"></script>
+      <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
+    <![endif]-->
+  </head>
+  <body>
+
+    <!-- jQuery (necessary for Bootstrap's JavaScript plugins) -->
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js"></script>
+    <!-- Include all compiled plugins (below), or include individual files as needed -->
+    <script src="js/bootstrap.min.js"></script>
+
+    <style>
+       #resultbox {
+            border: solid 2px;
+            width: 80%;
+       }
+
+       .legend {
+              width: 600px;
+       }
+
+       .legend dd, .legend dl, .legend dt {
+             display: inline;
+             margin-left: 4px;
+       }
+
+       .legend dt {
+               width: 10px; border: solid 1px;
+       }
+    </style>
+
+
+    <script src="json2.js"></script>
+
+    <script>
+var server_base = "/";
+var doc_base = server_base;
+
+$(document).ready(function(){
+
+var getUrlParameter = function getUrlParameter(sParam) {
+    var sPageURL = decodeURIComponent(window.location.search.substring(1)),
+        sURLVariables = sPageURL.split('&'),
+        sParameterName,
+        i;
+
+    for (i = 0; i < sURLVariables.length; i++) {
+        sParameterName = sURLVariables[i].split('=');
+
+        if (sParameterName[0] === sParam) {
+            return sParameterName[1] === undefined ? true : sParameterName[1];
+        }
+    }
+};
+
+  var dslFormFields = [ 'id', 'dbcustkey', 'service', 'grp', 'account_name', 'site_name', 'status', 'date', 'dsl_type', 'down', 'up', 'encap', 'noc_router', 'interface', 'ppp_name', 'ppp_password', 'cpe_gateway',
+                                       'cpe_wan', 'cpe_wan_sn', 'cpe_wan_png', 'mode', 'cpe_lan_ip', 'cpe_lan_sn', 'dns_primary', 'dns_sec', 'pvc', 'vlan', 'clli', 'rmt', 'slpt', 'axm', 'np',
+                                        'pvc_2', 'bty', 'pair', 'line', 'dgn', 'phone_number', 'dslcircuit_id', 'dsl_use', 'dist', 'bt', 'demarc_location', 'access', 'cpe_modem_rtr_location', 'cpe_modem_rtr',
+                                        'serial_nr', 'port', 'name', 'password', 'dhcp', 'user_wan_addr', 'user_wan_sn', 'user_wan_png', 'user_router', 'notes'];
+
+  var  oddFields = {'dhcp' : 1, 'dbcustkey' : 1,  'site_name' : 1,  'grp' : 1,  'date' : 1, 'down' :1,  'up' : 1,  'interface' : 1,  'ppp_password' :1,  'cpe_wan_sn' :1,  'cpe_wan_png' :1,  'cpe_lan_sn' :1,  'dns_sec' :1,
+                   'rmt' :1, 'np':1,   'pair':1, 'dgn':1, 'dslcircuit_id':1,  'dsl_use' :1,  bt:1, access:1, 'cpe_modem_rtr' :1,  'serial_nr' :1, 'password' :1,  'noc_router' :1,  'cpe_gateway':1, 'cpe_lan_ip':1, 'pvc':1,
+                   'clli' :1, 'axm':1, 'bty':1};
+
+  var dslRequired = {  'ppp_name':1, 'ppp_password':1,  'service' : 1,  'encap' :1 , 'dsl_type' :1,  'grp' :1,  'status' : 1, 'cpe_wan':1, 'cpe_wan_sn' :1, 'mode' :1 };
+
+  var dialRequired = {  'ppp_name':1, 'ppp_password':1,  'service' : 1,   'grp' :1,  'status' : 1,  'cpe_wan':1, 'cpe_wan_sn':1  };
+
+
+  var dialFormFields = [ 'id', 'dbcustkey', 'service', 'account_name', 'site_name', 'grp', 'status', 'date', 'hrs', 'ppp_name', 'ppp_password', 'cpe_wan', 'cpe_wan_png', 'notes'  ];
+
+
+  var fieldDescription = { 'dbcustkey'    :  'Internal Record  UUID ',
+                           'id'           :  'Internal Record  RowID',
+                           'service'      :  'service type',
+                           'account_name' :  'Account Name',
+                           'site_name'    :  'Site Name',
+                           'grp' :  'Group',
+                           'status'       :  'RADIUS User Status',
+                           'date'         :  'Date',
+                           'dsl_type'     :  'DSL Service Type',
+                           'down'         :  'Down Speed (Kilobits/Sec)',
+                           'up'           :  'Up Speed (Kilobits/Sec)',
+                           'noc_router'   :  'NOC Router',
+                           'encap'        :  'Encapsulation',
+                           'interface'    :  'Interface',
+                           'ppp_name'     :  'PPP Username',
+                           'ppp_password' :  'PPP Password',
+                           'cpe_gateway'  :  'CPE Gateway IP Address',
+                           'cpe_wan'      :  'CPE WAN IP Address',
+                           'cpe_wan_sn'   :  'CPE WAN Subnet',
+                           'cpe_wan_png'  :  'CPE WAN Ping',
+                           'dns_primary'  :  'Primary DNS Server',
+                           'dns_sec'      :  'Secondary DNS Server',
+                           'pvc'          :  'PVC',
+                           'vlan'         :  'VLAN (Virtual LAN) ID',
+                           'clli'         :  'CLLI',
+                           'rmt'          :  'RMT',
+                           'slpt'         :  'SLPT',
+                           'axm'          :  'AXM',
+                           'np'           :  'NP',
+                           'pvc_2'        :  'pvc_2',
+                           'bty'          :  'bty',
+                           'pair'         :  'pair',
+                           'line'         :  'Line',
+                           'dgn'          :  'dgn',
+                           'phone_number' : 'Telephone Number',
+                           'dslcircuit_id' :  'DSL Circuit ID',
+                           'dsl_use'      : 'DSL Use',
+                           'dist'         : 'Dist',
+                           'bt'  : 'bt',
+                           'demarc_location' :  'Demarc Location',
+                           'access' :  'Access',
+                           'cpe_modem_rtr_location' : 'CPE Modem/Router Location',
+                           'cpe_modem_rtr' :  'CPE Modem/Router Model',
+                           'serial_nr' : 'CPE Modem/Router Serial Number',
+                           'port' : 'CPE Port Number',
+                           'name' : 'CPE Login Name', 
+                           'password' : 'CPE Password',
+                           'mode' : 'Mode',
+                           'cpe_lan_ip' : 'CPE LAN/Rte Prefix',
+                           'cpe_lan_sn' : 'LAN/Rte Prefix Length',
+                           'user_wan_addr' : 'User WAN IP Address',
+                           'user_wan_sn' : 'User WAN Subnet Length',
+                           'user_wan_png': 'User WAN Ping?',
+                           'user_router' : 'User Router',
+                           'notes'       : 'Notes',
+                             };
+  var userData = [];
+  var origUserData = [];
+
+   function createNetmaskAddr(bitCount) {
+    var mask=[];
+     for(i=0;i<4;i++) {
+      var n = Math.min(bitCount, 8);
+      mask.push(256 - Math.pow(2, 8-n));
+      bitCount -= n;
+    }
+    return mask.join('.');
+  }
+
+  function subnetOptions(ivstr) {
+          var out ="";
+          var iv = parseInt(ivstr);
+          var x = 32;
+
+          out = out + '<option value="" selected default>~~~</option>';
+          out = out + '<option value="32">/32    (255.255.255.255) </option>';
+
+          for (x = 31; x >= 0; x--) {
+              out = out + '<option value="' + x + '">/' + x + '    (' + createNetmaskAddr(x) + ') </option>';
+          }
+
+          return out;
+  }
+
+  function limitedSubnetOptions(ivstr) {
+          var out ="";
+          var iv = parseInt(ivstr);
+          var x = 32;
+
+          out = out + '<option value="">~~~</option>';
+          out = out + '<option value="32" selected>/32    (255.255.255.255) </option>';
+          out = out + '<option value="30">/30    (255.255.255.252) </option>';
+          out = out + '<option value="29">/29    (255.255.255.248) </option>';
+
+          if (iv == 26) {
+              out = out + '<option value="26">/26    (255.255.255.192) </option>';
+          }
+          if (iv == 24) {
+              out = out + '<option value="24">/24    (255.255.255.0)  </option>';
+          }
+
+          return out;
+  }
+
+  function printFormElement(field, value, sub) {
+          var fsize = 24;
+          out = "";
+
+
+          if (field == "id") {
+               return '<input type="text" value="' + value + '" id="id" name="id" readonly disabled>';
+          }
+
+
+
+          if (field == "dbcustkey") { 
+               return '<input type="text" value="' + value + '" id="dbcustkey" name="dbcustkey" size="40" disabled><br> <input type="button" name="getradconf" id="getradconf" value="Show Raw RADIUS User Entry">';
+          }
+
+          if (field == "ppp_password") {
+               return '<input type="button" value="Get" id="getpass"><input type=text name="' + field + '" id="' + field + '" size="30">';
+          }
+
+          if (field == "password") {
+               return '<input type="button" value="Get" id="getpasscpe"><input type=text name="' + field + '" id="' + field + '" size="30">';
+          }
+
+
+          if (field == "service") {
+               return '<select name="service" id="service"><option value="dsl">DRADIUS - DSL</option><option value="dialup">DRADIUS - Dialup</option></select>';
+          }
+
+          if (field == "grp") {
+               return '<select name="grp" id="grp"><option value=""></option><option value="HT">HT</option><option value="SS">SS</option><option value="TN">TN</option><option value="GRPA">GRPA</option><option value="GRPB">GRPB</option><option value="GRPC">GRPC</option><option value="GRPD">GRPD</option><option value="GRPE">GRPE</option></select>';
+          }
+
+          if (field == "mode") { 
+               return '<select name="mode" id="mode"><option value="">---</option><option value="rte">Rte   (IP Route CPE_LAN Subnet to CPE_WAN IP)</option><option value="nat">NAT</option><option value="brg">Brg</option></option>';
+          }
+
+          //if (field == "cpe_wan_sn" || field == "up" || field == "interface" || field == "cpe_lan_sn" || field == "dns_sec") {
+          //        return '';
+          //}
+
+
+          //if (field == "dns_primary") {
+          //         out =        '<input type=text name="' + field + '" id="' + field + '" size="' + fsize + '">';
+          //         out = out + '</td><th' + required + '>Secondary:</th><td> <input type=text name="dns_sec" id="dns_sec" size="' + fsize + '">';
+          //
+          //         return out;
+          //}
+
+          //if (field == "down") { 
+          //         out =        '<input type=text name="' + field + '" id="' + field + '" size="' + fsize + '">';
+          //         out = out + '</td><th' + required + '>Upload:</th><td><input type=text name="up" id="up" size="' + fsize + '">';
+          //
+          //         return out;
+          //}
+
+          //if (field == "noc_router") {
+          //         out =        '<input type=text name="' + field + '" id="' + field + '" size="' + 32 + '">';
+          //         out = out + '</td><th' + required + '>Interface:</th><td><input type=text name="interface" id="interface" size="' + 32 + '">';
+          //
+          //         return out;
+          //}
+
+
+          if (field == "user_wan_sn") {
+                   return '<select name="user_wan_sn" id="user_wan_sn">' + subnetOptions(  userData["user_wan_sn"]  ) + '</select>';
+          }
+
+          if (field == "cpe_wan_sn") {  //cpe_wan
+
+               //if ( userData["cpe_wan_sn"] == "24" ||  userData["cpe_wan_sn"] == "29" ) {
+               //    return '<select name="cpe_wan_sn" id="cpe_wan_sn" disabled>' + limitedSubnetOptions(  userData["cpe_wan_sn"]  ) + '</select>';
+               //} else { 
+
+                   //out = '<input type=text name="' + field + '" id="' + field + '" size="' + fsize + '">';
+                   out = out + '<select name="cpe_wan_sn" id="cpe_wan_sn">' + subnetOptions(  userData["cpe_wan_sn"]  ) + '</select>'; 
+
+                   return out;
+              // }
+
+          }
+
+
+          if (field == "cpe_lan_sn") { //cpe_lan_ip
+                    //out = '<input type=text name="' + field + '" id="' + field + '" size="' + 40 + '">';
+
+               //if ( userData["cpe_wan_sn"] == "24" ||  userData["cpe_wan_sn"] == "29" ) {
+               //   return '<select name="cpe_lan_sn" id="cpe_lan_sn" disabled>' + limitedSubnetOptions(  userData["cpe_lan_sn"]  ) + '</select>';
+               //} else {
+                   return '<select name="cpe_lan_sn" id="cpe_lan_sn">' + subnetOptions(  userData["cpe_lan_sn"]  ) + '</select>';
+              // }
+          }
+
+          if (field == "encap") {
+                 return '<select name="encap" id="encap"><option value="" SELECTED>---</option><option value="ipoa">IPoA</option><option value="mer">Mer</option><option value="pppoa">PPPoA</option><option value="pppoe">PPPoE</option></select>';
+          }
+
+
+          if (field=="dsl_type") { 
+                  return '<select name="dsl_type" id="dsl_type"><option value="att">AT&amp;T</option><option value="cust">Custom</option><option value="stnd">Standard</option></select>';
+          }
+
+
+          if (field == "status") {
+                return '<select name="status" id="status"><option value="active">Active - Normal Status</option><option value="inactive">Inactive - Account Deactivated</option><option value="new">New</option><option value="convert">Convert</option><option value="suspended">Permanent Suspend</option><option value="password">Password (WARN: ANY CREDENTIAL ACCEPTED)</option></select>';
+          }
+
+
+
+          if (field == "user_wan_png") {
+                return '<select name="user_wan_png" id="user_wan_png"><option value="">---</option><option>Yes</option><option>No</option></select>';
+          }
+
+          if (field == "cpe_wan_png") { 
+                return '<select name="cpe_wan_png" id="cpe_wan_png"><option value="">---</option><option>Yes</option><option>No</option></select>';
+          }
+
+          if (field == "account_name" || field == "site_name") { fsize = 40; }
+          
+
+          out = '<input type=text name="' + field + '" id="' + field + '" size="' + fsize + '">' ;
+
+          return out;
+  }
+
+  var noRepeatSave = 0;
+
+  function saveItem() {
+     var savector = {};
+     var saveOut;
+     var  ws = $("#service").val();
+
+     if (noRepeatSave == 1) {
+          alert("New item already saved");
+          return;
+     }
+
+     savector["dbcustkey"] =  $("#dbcustkey").val();
+     savector["id"] = $("#id").val();
+
+     if (  ws == "dsl") {
+ 
+         for(x = 0 ; x < dslFormFields.length; x++) { 
+               k = dslFormFields[x];
+               savector[k] = $("#" + k  ).val();
+         }
+     }
+     if ( ws == "dialup") {
+         for(x = 0; x < dialFormFields.length; x++) {
+               k = dialFormFields[x];
+
+               savector[k] = $("#" + k  ).val();
+         }
+     }
+
+     saveOut =  JSON.stringify(savector);  //, null, 2);
+     myact = 'update';
+
+     if ( savector["id"] == "new" ) {
+          myact = 'new';
+     }
+
+     $.ajax({type: "POST",
+              url: "/cgi-bin/drad_saveuser.cgi?dbcustkey=" + savector["dbcustkey"] +  "&id=" + savector["id"] + "&orig_ppp_name=" + encodeURI(origUserData["ppp_name"]),
+              data: { action: myact, savedata: saveOut,  dbcustkey: savector["dbcustkey"], id: savector["id"],  orig_ppp_name : origUserData["ppp_name"]  },
+              dataType: 'json',
+              success:  function(ans) {
+                 if (ans.result == 'Success' && myact == 'new') {
+                    noRepeatSave = 1;
+                 }
+
+                 alert( ans.result + " " + ans.message  );
+
+                 if (ans.result == 'success' && myact == 'new') {
+                      document.location =  doc_base;
+                 }
+
+ } ,
+              error:  function(x,y,z) { alert("ERROR: Request failed: " + z); }
+        });
+
+  }
+
+  function showInfoDiv(text) {
+        $("#infodiv").html('<pre>' + escapeHTML(text) + '</pre><br><input type="button" name="close_infodiv" id="close_infodiv" value="Close">');
+        $("#close_infodiv").click(  function() {    $("#infodiv").html("") }    );
+  }
+
+  function getRadConf() {
+      showInfoDiv("Please wait... submitting HTTPS POST form");
+      
+
+      $.ajax({type: "POST",
+              url: "/cgi-bin/drad_radiuslines.cgi?dbcustkey=" + userData["dbcustkey"] + "&ppp_name=" + encodeURI(userData["ppp_name"]),
+              data: { id: openPanel, hidepw: 1, dbcustkey: openPanel, ppp_name: userData["ppp_name"]  },
+              dataType: 'text',
+              success:  function(ans) { setTimeout(function() { showInfoDiv(ans) }, 500 ) },
+              error:  function(x,y,z) { showInfoDiv("Request failed: " + z); }
+        });
+  }
+
+
+  function getPass() { 
+      $.ajax({type: "POST",
+              url: "/cgi-bin/drad_getpass.cgi?dbcustkey=" + userData["dbcustkey"] + "&ppp_name=" + encodeURI(userData["ppp_name"]),
+              data: { id: openPanel, dbcustkey: openPanel  },
+              dataType: 'json',
+              success:  function(ans) { alert( "Password for [" +  ans.rv[0][0]["ppp_name"]  +  "] is " + "[" +  ans.rv[0][0]["ppp_password"] + "]" ); } ,
+              error:  function(x,y,z) { alert("Getpass request failed: " + z); }
+        });
+  }
+
+  function getPassCPE() {
+      $.ajax({type: "POST",
+              url: "/cgi-bin/drad_getpasscpe.cgi?dbcustkey=" + userData["dbcustkey"] + "&ppp_name=" + encodeURI(userData["ppp_name"]),
+              data: { id: openPanel, dbcustkey: openPanel  },
+              dataType: 'json',
+              success:  function(ans) { alert( "Password for [" +  ans.rv[0][0]["ppp_name"]  +  "] CPE is " + "[" +  ans.rv[0][0]["password"] + "]" ); } ,
+              error:  function(x,y,z) { alert("Getpass request failed: " + z); }
+        });
+  }
+
+
+  function changedService() {
+       alert("Caution:  Saving after change of service will result in loss of data not shown.");
+       changedUserData();
+       reshowUserData();
+  }
+
+  function changedUserData() {
+           for (var k in userData) { 
+                 userData[k] = $("#" + k).val();
+           }
+  }
+
+  function reshowUserData() {
+                var $row;
+
+                $("#userdiv").html('<form autocomplete="no" id="dataform"><div id="resultbox"><table width="100%" border="1" id="result_tab"><tr><th></th><th></th><th></th></tr></table></div></form>');
+                
+
+                if (userData["service"] == "dsl") {
+   
+                       for (var ff1 in dslFormFields) { 
+
+                            description = dslFormFields[ff1];
+
+                            if ( fieldDescription[dslFormFields[ff1]] ) {
+                                 description = fieldDescription[dslFormFields[ff1]];
+                            }
+
+
+                            if (dslRequired[dslFormFields[ff1]]) {
+                                  required = ' style="background: yellow;"';
+                                  required2 = '<span style="color: red;">*</span> (required) ';
+                            } else {
+                                  required = ' style="background: lightgray;"  ';
+                                  required2 = '';
+                            }
+
+
+                             if  ( dslFormFields[ff1] == "cpe_lan_ip") {
+                                  required = ' style="background: cyan;"';
+                             }
+                             if  ( dslFormFields[ff1] == "cpe_lan_sn") {
+                                  required = ' style="background: cyan;"';
+                             }
+
+
+                            z =  printFormElement(dslFormFields[ff1],  userData[dslFormFields[ff1]], 0) ;
+
+                            if (z != "") {
+                                if ( !oddFields[ dslFormFields[ff1]  ] ) { 
+                                    $row = $("<tr><td" + required + ">"  + description  + required2 + "</td><td>" +  z  + "</td></tr>");
+
+                                    $("#result_tab tr:last").after( $row ) ;
+                                    //$("#result_tab tr:last").after( "<tr><td" + required + ">"  + description  + required2 + "</td><td>" +  z  + "</td></tr>" );
+                                }  else {
+
+                                    $row.append(  "<td" + required + ">"  + description  + required2 + "</td><td>" +  z  + "</td>"  );
+                                    //$("#result_tab tr:last").after( "<tr><td" + required + ">"  + description  + required2 + "</td><td>" +  z  + "</td></tr>" );
+                                }
+                            }
+
+                            $("#" + dslFormFields[ff1]).val(  userData[dslFormFields[ff1]]  );
+                       }
+                } else if (userData["service"] == "dialup") {
+
+
+                       for (var ff1 in dialFormFields) {
+
+                            description = dialFormFields[ff1];
+
+                            required="";  required2="";
+
+                            if (dialRequired[dialFormFields[ff1]]) {
+                                  required = ' style="background: yellow;"';
+                                  required2 = '<span style="color: red;">*</span> (required) ';
+                            } else {
+                                  required = ' style="background: lightgray;"  ';
+                                  required2 = '';
+                            }
+
+
+
+                            if ( fieldDescription[dialFormFields[ff1]] ) {
+                                 description = fieldDescription[dialFormFields[ff1]];
+                            }
+
+                            //$("#result_tab tr:last").after( "<tr><td>"  + description + "</td><td>" + userData[dslFormFields[ff1]]  + "</td></tr>" );
+
+                            $("#result_tab tr:last").after( "<tr><td" + required + ">"  + description  + required2 + "</td><td>" +  printFormElement(dialFormFields[ff1],  userData[dialFormFields[ff1]], 0)  + "</td></tr>" );
+                            $("#" + dialFormFields[ff1]).val(  userData[dialFormFields[ff1]]  );
+
+                       }
+
+
+                } else {
+
+                for (var mm in userData) {
+                       $("#result_tab tr:last").after( "<tr><td>"  + mm + "</td><td>" + userData[mm]  + "</td></tr>" );
+                }
+
+                }
+
+
+                //$("#result_tab tr:last").after( '<tr><td></td><td><input id="saveitem" type="button" value="Save User"></td></tr>'  );
+
+                $("#resultbox").append( '<div class="legend">Legend: <dl><dt style="background: yellow;">&nbsp;&nbsp;</dt><dd>- Required Always</dd><dt style="background: cyan;">&nbsp;&nbsp;</dt> - <dd>Required in DSL Mode Rte (Routed Prefix)</dd></dl></div>' );
+
+                $("#resultbox").append( '<input id="saveitem" type="button" style="position: relative; left: 40%; width: 10%; height: 50px; margin-bottom: 4px;"; value="Submit Update">' );
+
+                $("#service").change(changedService);
+                $("#saveitem").click(saveItem);
+                $("#getpass").click(getPass);
+                $("#getpasscpe").click(getPassCPE);
+ 
+                $("#getradconf").click(getRadConf);
+
+  }
+
+  function showLookupResult(data) {
+                if ( data.rv && data.rv[0] &&  data.rv[0][0]["id"] == "new" ) {
+                    origUserData["id"] = "new";
+                    userData["id"] = "new";
+                    userData["service"] = "dsl";
+                    reshowUserData();
+                    return;
+                }
+
+                $("#userdiv").html('<table width="100%" border="1" id="result_tab"><tr><th>Key</th><th>Value</th><th></th></tr></table>');
+                for (var i in data.rv) {
+
+                     for (var j in data.rv[i]) {
+
+                     //for (var j in Object.keys(data.rv[i])) { alert(j); }
+
+                      var keyList = Object.keys( data.rv[i][0] );
+
+                      for ( x = 0; x < keyList.length ; x++ ) {
+                          k = keyList[x];
+
+                          // resultList = resultList +  [ k,  data.rv[i][j][k] ];
+                          userData[k] = data.rv[i][j][k];
+
+                          origUserData[k] = userData[k];
+
+//                       $("#result_tab tr:last").after( "<tr><td>"  + k + "</td><td>" + data.rv[i][j][k]  + "</td></tr>" );
+
+                     }
+
+                    }
+                }
+
+                reshowUserData();
+  }
+
+  openPanel = getUrlParameter("search-u");
+
+  if (openPanel) {
+    $.ajax({type: "POST",
+            url: "/cgi-bin/drad_lookup.cgi?action=view&dbcustkey=" + openPanel,
+            data: { id: openPanel,  dbcustkey: openPanel  },
+            dataType: 'json',
+            success:  function(ans) { showLookupResult(ans) },
+            error:  function(x,y,z) { alert("Request failed: " + z); }
+   });
+  }
+
+
+  //$("#findform").submit(function(e) {
+  //       e.preventDefault();
+  //});
+
+  function viewPage(ltext) {
+         lname = ltext.substr(5);
+
+         document.location =  doc_base+"?action=view&search-u=" + xdata[lname];
+  }
+
+function escapeHTML(unsafe) {
+    return unsafe
+         .replace(/&/g, "&amp;")
+         .replace(/</g, "&lt;")
+         .replace(/>/g, "&gt;")
+         .replace(/"/g, "&quot;")
+         .replace(/'/g, "&#039;");
+ }
+
+  var xdata = [];
+
+  xdata["new"] = "new";
+
+  //$("#lookup").click(function(e){
+  $("#findform").submit(function(e) {
+      e.preventDefault();
+      invokeFind();
+  });
+
+  if (openPanel && openPanel != "" && getUrlParameter("action") != "view") {
+       $("#search-u").val(openPanel);
+       invokeFind();
+  }
+
+  function invokeFind() {
+    $.ajax({type: "POST",
+            url: "/cgi-bin/drad_list.cgi",
+            data: { id: $("#search-u").val()  },
+            dataType: 'json',
+            error:  function(x,y,z) { alert("Request failed: " + z); },
+            success:function(result){
+
+                $("#userdiv").html('<table width="100%" border="1" id="result_tab"><tr><th>PPP Username</th><th>Account Name<th>Site Name</th></th><th>Status</th><th>Service</th><th></th></tr></table>');
+
+               for (var i in result.rv) {
+
+//alert(result.rv[i][1]);
+                    xdata[i] = result.rv[i][0]["dbcustkey"];
+                    statusval = "";
+                    statusstyle = "";
+
+                    statusval = result.rv[i][0]["status"];
+
+                   if ( result.rv[i][0]["status"] == "password")  {
+                           statusval = 'password';
+                           statusstyle = ' style="background: orange;"';
+                   }
+
+                   if ( result.rv[i][0]["status"] == "inactive")  {
+                           statusval = 'Inactive';
+                           statusstyle = ' style="background: red;"';
+                   }
+
+                   if ( result.rv[i][0]["status"] == "suspended")  {
+                           statusval = 'Suspended';
+                           statusstyle = ' style="background: red;"';
+                   }
+
+                   if ( result.rv[i][0]["status"] == "convert")  {
+                           statusval = 'Convert';
+                           statusstyle = ' style="background: magenta;"';
+                   }
+
+                   if ( result.rv[i][0]["status"] == "new")  {
+                           statusval = 'New';
+                           statusstyle = ' style="background: lightblue;"';
+                   }
+
+
+                   if ( result.rv[i][0]["status"] == "active")  { 
+                           statusval = 'Active';
+                           statusstyle = ' style="background: lightgreen;"';
+                   }
+
+
+
+
+                    $("#result_tab tr:last").after( "<tr><td>" + escapeHTML(result.rv[i][0]["ppp_name"]) + "</td><td>" + escapeHTML(result.rv[i][0]["account_name"]) + "</td><td>" + escapeHTML(result.rv[i][0]["site_name"]) + "</td><td" + statusstyle + ">" + escapeHTML(statusval) + "</td><td>" + escapeHTML(result.rv[i][0]["service"]) + "</td><td>" + '<input type="button" id="view_' + i + '" value="View">' + "</td></tr>" );
+
+                    $( "#view_" + i  ).click( function(e){ viewPage(e.target.id); }  );
+
+               }
+
+               $("#result_tab tr:last").after( '<tr><td></td><td></td><td><input type="button" id="view_new" value="Create New User"></td></tr>' );
+               $( "#view_" + "new"  ).click( function(e){ viewPage(e.target.id); }  );
+
+
+               //      $("#userdiv").html(result);
+
+    }});
+  }//);
+});
+    </script>
+
+    <form id="findform" style="margin-left: 4px; margin-top: 5px;" autocomplete="off">
+       D RADIUS Username: <input type="text" id="search-u" name="search-u" value="">   <input type="submit" name="lookup" value="Search" id="lookup">
+    </form>
+
+    <hr>
+    <div id="infodiv" style="margin-left: 10px"></div>
+    <div id="userdiv" style="margin-left: 10px">
+    </div>
+  </body>
+</html>
+
