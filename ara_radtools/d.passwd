@@ -1,0 +1,107 @@
+#!/usr/bin/perl
+
+# Copyright (C) 2008 Mysidia 
+
+use String::Escape qw(list2string string2list);
+
+
+sub readstring
+{
+   my $result = <STDIN>;
+   my ($arg, $rex) = @_;
+
+
+   if ( $rex && $result !~ $rex ) {
+       print STDERR "Invalid ${arg}\n";
+       return undef;
+    }
+
+   chomp($result);
+   return $result;
+}
+
+$LPW=`PROMPTPW=1 dedit`;
+chomp $LPW;
+die if ($LPW eq '-ERR-');
+
+
+$UNAME = undef;
+$UPASS = undef;
+$UCRYPT = undef;
+
+if (defined($ARGV[0]) && $ARGV[0] =~ /^[-a-zA-Z_\.][-\/@a-zA-Z0-9_\.]+$/)
+{
+    $UNAME = $ARGV[0];
+}
+
+if ( defined($ARGV[1]) && defined($ARGV[2]) && 
+       $ARGV[2] =~ /^\d$/ ) {
+   ($UPASS) = string2list($ARGV[1]);
+   $UCRYPT = ($ARGV[2] == 0) ? 'P' :
+             ($ARGV[2] == 1) ? 'C' :
+             ($ARGV[2] == 2) ? 'H' : 'H';
+}
+
+
+unless (defined($UNAME)) {
+    print STDERR "Enter username for dialup user: ";
+    $UNAME = readstring("username", qr/^[-a-zA-Z_\.][-@\/a-zA-Z0-9_\.]+$/);
+    die unless ($UNAME);
+}
+
+
+unless (defined($UPASS)) {
+    print STDERR "Enter password for $UNAME: ";
+    $UPASS = readstring("password");
+    die unless ($UPASS);
+
+    print STDERR "Again: ";
+    $UAGAIN = readstring("password");
+    die unless ($UAGAIN);
+
+    die "Passwords don't match.\n" unless ($UAGAIN eq $UPASS);
+}
+
+unless (defined($UCRYPT)) {
+     print STDERR "How to store password?  (c=crypt, p=plain text, h=hash) [c/p/h]: ";
+     $UCRYPT = readstring('entry', qr/^(?:C|P|H)$/i);
+     die unless ($UCRYPT);
+}
+
+print "Running  'IMPORTMODE=1  dedit'  :" . "\n";
+print "[\n";
+print "user ${UNAME}\n";
+print " assert_nonempty\n";
+if ( $UCRYPT =~ /^C/i )
+{
+   print " crypt-password text QUOTEDPW:" . list2string(${UPASS}) . "\n";
+} elsif ( $UCRYPT =~ /^H/i ) {
+   print " crypt-password hash ${UPASS}\n";
+} else {
+#   print " password ${UPASS}\n";
+  print " password QUOTEDPW:" . list2string(($UPASS)) . "\n";
+}
+print "write\n";
+print "quit\n";
+print "] \n";
+
+
+$ENV{PWIS}=$LPW;
+$ENV{SILENTQUERY}=1;
+$ENV{IMPORTMODE}=1;
+open IMPORT, "|dedit";
+print IMPORT "\n\n";
+print IMPORT "user ${UNAME}\n";
+print IMPORT " assert_nonempty\n";
+if ( $UCRYPT =~ /^C/i )
+{
+   print IMPORT " crypt-password text QUOTEDPW:" . list2string(${UPASS}) . "\n";
+} elsif ( $UCRYPT =~ /^H/i ) {
+    print IMPORT " crypt-password hash ${UPASS}\n";
+} else {
+   print IMPORT " password QUOTEDPW:" . list2string((${UPASS})) . "\n";
+}
+print IMPORT " show\n";
+print IMPORT "write\n";
+print IMPORT "quit\n";
+close IMPORT;

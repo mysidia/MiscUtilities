@@ -1,0 +1,46 @@
+#!/usr/bin/perl
+
+# Copyright (C) 2008 Mysidia 
+
+sub readstring
+{
+   my $result = <STDIN>;
+   my ($arg, $rex) = @_;
+
+
+   if ( $rex && $result !~ /$rex/ ) {
+       print STDERR "Invalid ${arg}\n";
+       return undef;
+    }
+
+   chomp($result);
+   return $result;
+}
+
+$LPW=`PROMPTPW=1 dedit`;
+chomp $LPW;
+
+$UNAME = $ARGV[0];
+$ARGS='';
+
+if ($UNAME) {
+  if ($UNAME =~ /^[:@]/) {
+         $ARGS = ' ' .$UNAME;
+  } else {
+     $ARGS = ' :' . $UNAME;
+  }
+}
+
+########
+print " Running 'IMPORTMODE=1 /usr/local/bin/dedit' :: \n";
+print "[\nshow user$ARGS\n";
+print "exit]\n";
+
+$ENV{PWIS}=$LPW;
+$ENV{SILENTQUERY}=1;
+$ENV{IMPORTMODE}=1;
+$ENV{NOPROMPTMODE}=1;
+open IMPORT, "|dedit";
+print IMPORT "\n\n";
+print IMPORT "show user$ARGS\nexit\n";
+close IMPORT;

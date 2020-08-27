@@ -1,0 +1,129 @@
+#!/usr/bin/perl
+
+# Copyright (C) 2008 Mysidia 
+
+use String::Escape qw(list2string string2list);
+
+
+sub readstring
+{
+   my $result;
+   my ($arg, $rex) = @_;
+   my $tries=0;
+
+   tryagain:
+
+   $result = <STDIN>;
+
+   if ( $rex && $result !~ /$rex/ ) {
+       print STDERR "Invalid ${arg}\n";
+       print " Try again: ";
+       if (++$tries < 3) {
+           goto tryagain;
+       }
+       return undef;
+    }
+
+   chomp($result);
+   return $result;
+}
+
+
+
+#sub readstring
+#{
+#   my $result = <>;
+#   my ($arg, $rex) = @_;
+#
+#
+#   if ( $rex && $result !~ $rex ) {
+#       print STDERR "Invalid ${arg}\n";
+#       return undef;
+#    }
+#
+#   chomp($result);
+#   return $result;
+#}
+
+$ENV{IMPORTMODE}=1;
+$LPW=`PROMPTPW=1 IMPORTMODE=1 dedit`;
+chomp $LPW;
+die if ($LPW eq '-ERR-');
+
+print STDERR "Enter username to be created or edited: ";
+$UNAME = readstring("username", qr/^[-a-zA-Z_\.][-\/@a-zA-Z0-9_\.]+$/);
+die unless ($UNAME);
+
+
+print STDERR "Real name/gecos: ";
+$UGECOS = readstring("real name", qr/^[-a-zA-Z0-9_\. ]+$/);
+die unless ($UGECOS);
+
+
+passwordsdontmatch:
+print STDERR "Choose password: ";
+$UPASS = readstring;
+die unless ($UPASS);
+
+
+print STDERR "Again: ";
+$UAGAIN = readstring;
+die unless ($UAGAIN);
+
+unless ($UAGAIN eq $UPASS) {
+   print STDERR "Passwords do not match.\n";
+   goto passwordsdontmatch;
+}
+
+print STDERR "How to store password?  (c=crypt, p=plain text, h=if you typed the hash) [c/p/h]: ";
+$UCRYPT = readstring('entry', qr/^(?:C|P|H)$/i);
+die unless ($UCRYPT);
+
+
+
+print "Preparing to create/update user:\n\n";
+
+print "Running  'IMPORTMODE=1  /usr/local/bin/dedit'  :" . "\n";
+print "\n\n[";
+print "user ${UNAME}\n";
+print " gecos ${UGECOS}\n";
+if ( $UCRYPT =~ /^Y/i || $UCRYPT =~ /^C$/i ) {
+    print " crypt-password text autosalt QUOTEDPW:" . list2string((${UPASS})) . "\n";
+ }
+ elsif ( $UCRYPT =~ /^H/i ) {
+    print " crypt-password " . ${UPASS} . "\n";
+ } else {
+    print " password QUOTEDPW:" . list2string((${UPASS})) . "\n";
+ }
+print "  group dialup\n";
+print "write\n";
+print "quit\n";
+print "] \n";
+
+$ENV{PWIS}=$LPW;
+$ENV{SILENTQUERY}=1;
+
+print "\n\nAny conflicting data for this username will be overwritten\nWrite out user ${UNAME} now? [y/n] ";
+$UCONT = readstring('choice', qr/^(?:Y|N)$/i);
+die "Aborted." if ($UCONT =~ /^N/i);
+die unless ($UCONT);
+
+
+open IMPORT, "|IMPORTMODE=1 SILENTQUERY=1 dedit";
+print IMPORT "\n\n";
+print IMPORT "user ${UNAME}\n";
+print IMPORT " gecos ${UGECOS}\n";
+if ( $UCRYPT =~ /^Y/i || $UCRYPT =~ /^C$/i ) {
+    print IMPORT "  crypt-password text autosalt QUOTEDPW:" . list2string((${UPASS})) . "\n";
+ } elsif ( $UCRYPT =~ /^H/i ) {
+    print IMPORT "  crypt-password hash ${UPASS}\n";
+ } else {
+    print IMPORT "  password QUOTEDPW:" . list2string((${UPASS})) . "\n";
+ }
+
+print IMPORT "  ungroup dialup\n";
+print IMPORT "  group dialup\n";
+print IMPORT "  show\n";
+print IMPORT "write\n";
+print IMPORT "quit\n";
+close IMPORT;

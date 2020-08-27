@@ -1,0 +1,12 @@
+#!/bin/sh
+
+# Copyright (C) 2008 Mysidia 
+
+SLAVE_HOST=
+USERNAME=
+PASSWORD=
+
+echo Connecting to $SLAVE_HOST
+set -x
+/usr/bin/mysql -h $SLAVE_HOST -u $USERNAME -p --ssl-key=/etc/ssl-mysql/server.key --ssl-cert=/etc/ssl-mysql/server.crt --ssl-ca=/etc/ssl-mysql/cacert.pem --password=$PASSWORD raddb_dialup
+

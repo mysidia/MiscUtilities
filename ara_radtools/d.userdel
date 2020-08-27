@@ -1,0 +1,61 @@
+#!/usr/bin/perl
+
+# Copyright (C) 2008 Mysidia 
+
+sub readstring
+{
+   my $result = <STDIN>;
+   my ($arg, $rex) = @_;
+
+
+   if ( $rex && $result !~ /$rex/ ) {
+       print STDERR "Invalid ${arg}\n";
+       return undef;
+    }
+
+   chomp($result);
+   return $result;
+}
+
+$LPW=`PROMPTPW=1 dedit`;
+chomp $LPW;
+die if ($LPW eq '-ERR-');
+
+
+$UNAME = undef;
+
+if (defined($ARGV[0]) && $ARGV[0] =~ /^[-a-zA-Z_\.][-@\/a-zA-Z0-9_\.]+$/)
+{
+    $UNAME = $ARGV[0];
+}
+
+
+unless (defined($UNAME)) {
+    print STDERR "Enter username to erase: ";
+    $UNAME = readstring("username", /^[-a-zA-Z_\.][-@\/a-zA-Z0-9_\.]+$/);
+    die unless ($UNAME);
+}
+
+
+print "Running  'IMPORTMODE=1  dedit'  :" . "\n";
+print "[\n";
+print "user ${UNAME}\n";
+print "assert_nonempty\n";
+print "flush user\n";
+print "write\n";
+print "quit\n";
+print "] \n";
+
+
+$ENV{PWIS}=$LPW;
+$ENV{SILENTQUERY}=1;
+$ENV{IMPORTMODE}=1;
+open IMPORT, "|dedit";
+print IMPORT "\n\n";
+print IMPORT "user ${UNAME}\n";
+print IMPORT " assert_nonempty\n";
+print IMPORT " flush user\n";
+print IMPORT " show\n";
+print IMPORT "write\n";
+print IMPORT "quit\n";
+close IMPORT;

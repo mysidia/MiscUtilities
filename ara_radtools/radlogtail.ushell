@@ -1,0 +1,3 @@
+#!/bin/sh
+
+/bin/env -i /usr/bin/sudo -u radiusd /usr/local/bin/radlogtail

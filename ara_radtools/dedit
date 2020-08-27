@@ -1,0 +1,1097 @@
+#!/usr/bin/perl
+
+# Copyright (C) 2008 Mysidia 
+
+#
+# Actual import tool/backend
+#
+#
+#
+use Term::ReadLine;
+use Digest::MD5 qw/md5_base64/;
+use String::Escape qw(list2string string2list);
+use DBI;
+
+my $query_verbose = (defined($ENV{SILENTQUERY})) ? 0 : 1;
+my $import_mode = (defined($ENV{IMPORTMODE})) ? 1 : 0;
+my $DBNAME = 'raddb_dialup';
+
+$ENV{PERL_RL}='Gnu';
+
+local $SIG{INT}='IGNORE';
+local $SIG{TSTP}= 'IGNORE';
+
+open TTYX, "</dev/tty" || die "Could not open terminal device";
+
+my $termpw = new Term::ReadLine 'ProgramName', \*TTYX, STDERR, undef;
+my $dbh;
+
+my $input;
+my %modestr = (
+           '' => '',
+           'user' => ' [edit on: user]'
+      );
+my %promptchar = (
+           '' => '::>',
+           'user' => '>'
+      );
+
+my %RADIUS = (
+        server => '127.0.0.1',
+        secret => 'testing12345'
+    );
+my $mode = '';
+my $mode_arg = '';
+my $mode_written;
+my %mode_hash;
+my @mode_lines = ();
+
+
+############
+sub enter_mode {
+   my $modename = shift;
+
+
+   $mode_written = 1;
+   $mode_arg = shift;
+   $mode = $modename;
+   %mode_hash = ();
+   @mode_lines = ();
+
+   print STDERR  "Entering mode [${modename}:${mode_arg}]\n";
+}
+
+
+sub assert_nonempty
+{
+    if (!@{$mode_hash{'user_Check'}}  && !@{$mode_hash{'user_Reply'}} &&
+        !@{$mode_hash{'user_Groups'}} && !@{$mode_hash{'user_Notes'}}  ) {
+         die "ERROR: No data for user.";
+    }
+}
+
+sub show_mode_user
+{
+    my $x;
+
+    print "\n-- User Record\n\n";
+    print "  user  $mode_arg \n";
+
+    for $x ( @{$mode_hash{'user_Check'}}  ) {
+       next if ($x->{'op'} eq 'SKIP');
+       printf("    attr_check  %-15s  %s   %s\n",  $x->{'Attribute'}, $x->{'op'}, $x->{'Value'});
+    }
+
+    for $x ( @{$mode_hash{'user_Reply'}}  ) {
+       next if ($x->{'op'} eq 'SKIP');
+       printf("    attr_reply  %-15s  %s   %s\n",  $x->{'Attribute'}, $x->{'op'}, $x->{'Value'});
+    }
+
+    for $x ( @{$mode_hash{'user_Groups'}}  ) {
+       printf("    group       %s\n",  $x);
+    }
+
+    for $x ( @{$mode_hash{'user_Notes'}}  ) {
+       next if ($x->{'op'} eq 'SKIP');
+       printf("    attr_note   %-15s  %s   %s\n",  $x->{'Attribute'}, $x->{'op'}, $x->{'Value'});
+    }
+
+    if (!@{$mode_hash{'user_Check'}}  && !@{$mode_hash{'user_Reply'}} && 
+        !@{$mode_hash{'user_Groups'}} && !@{$mode_hash{'user_Notes'}}  ) {
+       print "     -- Empty: user has no attributes.\n";
+    }
+
+    print "\n\n\n";
+}
+
+sub load_user {
+   my $username = shift;
+   my $qch = $dbh->prepare(q|SELECT * from radcheck where username=?|);
+   my $qrpl = $dbh->prepare(q|SELECT * from radreply where username=?|);
+   my $qgrp = $dbh->prepare(q|SELECT * from usergroup where UserName=?|);
+   my $qnotes = $dbh->prepare(q|SELECT * from notes where UserName=?|);
+   my $row;
+   my $flag;
+
+   print STDERR "TABLE FLUSHED... Loading user ${username}  from SQL\n";
+   $mode_hash{'user_Check'} = [];
+   $mode_hash{'user_Reply'} = [];
+   $mode_hash{'user_Groups'} = [];
+   $mode_hash{'user_Notes'} = [];
+
+   $qch->execute($username) || die "Could not execute 'radcheck' query";
+   $flag=0;
+
+   while ( $row = $qch->fetchrow_hashref ) {
+       unless ( $import_mode )
+       {
+           if ( !$flag ) {
+                print "CHECK ATTRIBUTES\n";
+               $flag=1;
+            } 
+
+            printf("    %-20s %-4s %-20s\n", $row->{'Attribute'},
+                                            $row->{'op'},
+                                            $row->{'Value'});
+       }
+       push @{$mode_hash{'user_Check'}}, {%{$row}};
+   }
+
+   $qrpl->execute($username) || die "Could not execute 'radreply' query";
+   $flag = 0;
+   while ( $row = $qrpl->fetchrow_hashref ) {
+       unless ( $import_mode )
+       {
+           if ( !$flag ) {
+               print "REPLY ATTRIBUTES\n";
+               $flag=1;
+           }
+           printf("    %-20s %-4s %-20s\n", $row->{'Attribute'},
+                                            $row->{'op'},
+                                            $row->{'Value'});
+       }
+       push @{$mode_hash{'user_Reply'}}, {%{$row}};
+   }
+
+   $qgrp->execute($username) || die "Could not execute 'usergroup' query";
+   $flag=0;
+   while ( $row = $qgrp->fetchrow_hashref ) {
+       unless ( $import_mode )
+       {
+           if ( !$flag ) {
+                print "GROUP MEMBERSHIPS\n";
+                $flag=1;
+           }
+           printf("    %-20s %-4s %-20s\n", $row->{'GroupName'}
+                                      );
+       }
+       push @{$mode_hash{'user_Groups'}}, $row->{'GroupName'};
+   }
+
+
+   $qnotes->execute($username) || die "Could not execute 'notes' query";
+   $flag=0;
+   while ( $row = $qnotes->fetchrow_hashref ) {
+       unless ( $import_mode )
+       {
+           if ( !$flag ) {
+                print "USER NOTES\n";
+                $flag=1;
+           }
+           printf("    %-20s %-4s %-20s\n", $row->{'Attribute'},
+                                            $row->{'op'},
+                                            $row->{'Value'});
+       }
+
+       push @{$mode_hash{'user_Notes'}}, {%{$row}};
+   }
+
+
+   print "\n\n";
+}
+
+#                               write_user( $mode_arg, $mode_hash )
+sub write_user
+{
+   my $qch_d = $dbh->prepare(q|DELETE from radcheck where username=?|);
+   my $qrpl_d = $dbh->prepare(q|DELETE from radreply where username=?|);
+   my $qgrp_d = $dbh->prepare(q|DELETE from usergroup where username=?|);
+   my $qnotes_d = $dbh->prepare(q|DELETE from notes where username=?|);
+
+   my $qch_i = $dbh->prepare(q|INSERT INTO radcheck | .
+                              q| (UserName,Attribute,op,Value) | .
+                              q| VALUES(?,?,?,?)|);
+   my $qrpl_i = $dbh->prepare(q|INSERT INTO radreply | .
+                              q| (UserName,Attribute,op,Value) | .
+                              q| VALUES(?,?,?,?)|);
+   my $qgrp_i = $dbh->prepare(q|INSERT INTO usergroup | .
+                              q| (UserName,GroupName) | .
+                              q| VALUES(?,?)|);
+  my $qnotes_i = $dbh->prepare(q|INSERT INTO notes | .
+                              q| (UserName,Attribute,op,Value) | .
+                              q| VALUES(?,?,?,?)|);
+
+
+   my $username = $mode_arg;
+
+   $dbh->do("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE");
+   $dbh->begin_work;
+        if ($query_verbose) {
+            print STDERR " -- SET TRANSACTION ISOLATION LEVEL SERIALIZABLE\n";
+            print STDERR " -- BEGIN WORK\n";
+        }
+        $qch_d->execute($username) || die "Write error: flush check";
+        $qrpl_d->execute($username) || die "Write error: flush replies";
+        $qgrp_d->execute($username) || die "Write error: flush groups";
+        $qnotes_d->execute($username) || die "Write error: flush notes";
+
+        print STDERR "-- DELETE from radcheck,radreply,usergroup,notes where username='${username}'\n"
+            if ($query_verbose);
+
+        for (@{$mode_hash{'user_Check'}}) {
+            next if $_->{'op'} eq 'SKIP';
+
+          print STDERR "-- INSERT INTO radcheck (UserName,Attribute,op,Value) VALUES('$username', '$_->{'Attribute'}', '$_->{'op'}', '$_->{'Value'}')\n"
+                  if ($query_verbose);
+           $qch_i->execute( $username, $_->{'Attribute'},
+                            $_->{'op'}, $_->{'Value'} )
+                || die "Could not execute insert radcheck";
+        }
+
+        for (@{$mode_hash{'user_Reply'}}) {
+            next if $_->{'op'} eq 'SKIP';
+
+          print STDERR "-- INSERT INTO radreply (UserName,Attribute,op,Value) VALUES('$username', '$_->{'Attribute'}', '$_->{'op'}', '$_->{'Value'}')\n"
+                 if ($query_verbose);
+           $qrpl_i->execute( $username, $_->{'Attribute'},
+                            $_->{'op'}, $_->{'Value'} )
+              || die "Could not execute insert radreply";
+        }
+
+        for (@{$mode_hash{'user_Groups'}}) {
+            next if $_ eq '';
+
+          print STDERR "-- INSERT INTO usergroup (UserName,GroupName) VALUES('$username', '$_')\n"
+               if ($query_verbose);
+
+           $qgrp_i->execute( $username, $_)
+                || die "Could not execute insert usergroup";
+        }
+
+        for (@{$mode_hash{'user_Notes'}}) {
+            next if $_ eq '';
+            next if $_->{'op'} eq 'SKIP' || $_->{'op'} eq 'SK';
+
+          print STDERR "-- INSERT INTO notes (UserName,Attribute,op,Value) VALUES('$username', '$_->{'Attribute'}', '$_->{'op'}', '$_->{'Value'}')\n"         
+              if ($query_verbose);
+           $qnotes_i->execute( $username, $_->{'Attribute'},
+                               $_->{'op'}, $_->{'Value'});
+        }
+
+   if ( $dbh->commit ) {
+      print STDERR "-- COMMIT WORK;\n"
+              if ($query_verbose);
+      print STDERR "User ${username} written out successfully, and transaction committed.\n";
+   } else {     
+      print STDERR "-- ROLLBACK;\n";
+      print STDERR "ERROR writing user: " . $dbh->errstr . "\n";
+      $dbh->rollback;
+   }
+}
+
+
+my $orig_red;
+my $ch;
+
+#add_defun
+#Term::ReadLine
+
+$termpw->ornaments(0);
+$orig_red = $termpw->Attribs->{redisplay_function};
+
+print STDERR "\n";
+print STDERR "Loading dialup edit/import tool\n" unless $ENV{IMPORTMODE};
+print STDERR "##\n# Connecting to database  DBI:mysql:dbname=${DBNAME}  user=root \n#\n"
+     unless $ENV{IMPORTMODE};
+
+if (!$ENV{PWIS} && open(X, "</etc/radius.d.secrets")) {
+     $input = <X>;
+     chomp $input;
+     close X;
+}
+else
+{
+    $termpw->Attribs->{redisplay_function} = $termpw->Attribs->{shadow_redisplay};
+
+    if ( !defined($ENV{PWIS}) )  {
+    $input = $termpw->readline("MySQL access password: ");
+    } else {
+     $input = $ENV{PWIS};
+    }
+    $termpw->Attribs->{redisplay_function} = $orig_red;
+
+    $termpw->remove_history($termpw->where_history);
+}
+
+######################################
+
+my $term = new Term::ReadLine 'ProgramName', STDIN, STDOUT, undef;
+
+if ($term->ReadLine ne 'Term::ReadLine::Gnu') {
+     die "Could not find Term::ReadLine::Gnu\n";
+}
+
+my $as_user = 'root';
+
+######################################
+
+if ($ENV{PROMPTPW})
+{
+     $dbh = DBI->connect('DBI:mysql:dbname=' . $DBNAME, $as_user, $input);
+
+     unless($dbh) {
+         print "-ERR-\n";
+         die "Error connecting to database: " .  DBI->errstr;
+     }
+
+     print "$input\n";
+     exit(0);
+}
+
+
+$dbh = DBI->connect('DBI:mysql:dbname=' . $DBNAME, $as_user, $input)
+         || die "Error connecting to database: " .  DBI->errstr;
+
+
+
+$term->set_signals;
+$term->ornaments(1);
+#$term->completion_matches('', \&command_completions);
+
+$term->Attribs->{completion_function} = \&command_completions;
+
+#$term->add_defun('help', sub{ print "OK[" . $term->Attribs->{line_buffer}. "]" . "\n";}, ord '?');
+#$term->add_defun('help', \&context_help, ord '?');
+#$term->add_defun('help-key', \&context_help, ord "\ch");
+$term->add_defun('help-key2', \&context_help, ord "");
+#$term->add_defun('exitmode', \&exit_mode, ord "\cd");
+$term->add_defun('exitmode', \&exit_mode, ord '');
+
+
+
+if ( $ARGV[0] && $ARGV[0] =~ /^[\/@a-zA-Z0-9\._-]+$/)
+{
+      enter_mode('user', $ARGV[0]);
+      load_user($ARGV[0]);
+}
+
+sub clean_attributes
+{
+   my $arr = shift;
+   my @attrlist = @_;
+   my $len = (scalar @{$arr})-1;
+   my $i;
+
+   for $i (0..$len) 
+   {
+        if ( grep { lc($arr->[$i]->{'Attribute'}) eq lc($_) } @attrlist ) {
+              $arr->[$i]->{'op'} = 'SKIP';
+        }
+   }
+}
+
+sub SetAttrib
+{
+   my ($attrhash, $attrname, $attr_x, $m_1, $m_2) = @_;
+
+   clean_attributes
+       $attrhash,
+      ($attrname, @{$attr_x});
+
+   push @{$attrhash},
+   {
+          UserName => $m_1,
+          Attribute => $attrname,
+          op        => '=',
+          Value     => $m_2
+   }
+   if ( defined($m_2) && $m_2 ne '' );
+}
+
+
+
+$user_commands =
+{
+   'a' => [
+            {
+                 name => "attr_",
+                 code => sub{ print STDERR "Usage: attr_{check,reply} <ATTR> <OP> <ARG>\n"; },
+                 desc => ""
+            },
+            {  name => "attr_check",
+               code => sub{
+                        my ($attr, $op, $arg) = split(/ /, shift);
+
+                         unless (defined($arg)) {
+                             print STDERR "Syntax: attr_check <ATTR> <OP> <ARG>\n";
+                             return;
+                         }
+                          
+
+                         $mode_written = 0;
+                         push @{$mode_hash{'user_Check'}},
+                                {
+                                    UserName => $mode_arg,
+                                    Attribute => $attr,
+                                    op        => $op,
+                                    Value     => $arg
+                                };
+                     },
+               desc => "Raw attribute attr [<NAME> <OP> <VALUE>]\n"
+            },
+            {  name => "attr_reply",
+               code => sub{
+                        my ($attr, $op, $arg) = split(/ /, shift);
+
+
+                         unless (defined($arg)) {
+                             print STDERR "Syntax: attr_reply <ATTR> <OP> <ARG>\n";
+                             return;
+                         }
+
+
+                         $mode_written = 0;
+                         push @{$mode_hash{'user_Reply'}},
+                                {
+                                    UserName => $mode_arg,
+                                    Attribute => $attr,
+                                    op        => $op,
+                                    Value     => $arg
+                                };
+                     },
+               desc => "Raw attribute attr [<NAME> <OP> <VALUE>]\n"
+            },
+            {  name => "attr_note",
+               code => sub{
+                        my ($attr, $op, $arg) = split(/ /, shift);
+
+
+                         unless (defined($arg)) {
+                             print STDERR "Syntax: attr_note <ATTR> <OP> <ARG>\n";
+                             return;
+                         }
+
+
+                         $mode_written = 0;
+                         push @{$mode_hash{'user_Notes'}},
+                                {
+                                    UserName => $mode_arg,
+                                    Attribute => $attr,
+                                    op        => $op,
+                                    Value     => $arg
+                                };
+                     },
+               desc => "Raw attribute attr_note [<NAME> <OP> <VALUE>]\n"
+            },
+
+            { name => "assert_nonempty", code => \&assert_nonempty }
+
+          ],
+
+   'c' => [
+             { name => "comment",
+                code => sub {
+                   my $arg = shift;
+
+                   SetAttrib($mode_hash{'user_Notes'},
+                             'User-Comment', [], $mode_arg,
+                             $arg);
+                   $mode_written = 0;
+                },
+                desc => "Make a note of user comment"
+            },
+             { name => "crypt-password",  
+                code => sub {
+                   my $arg = shift;
+                   my $salt = '';
+                   my $plain;
+
+                   $mode_written = 0;
+
+                   if ( $arg =~ /^(h(as?h?)?)\s+(\S+)/ ) {
+                        $arg = $3;
+
+                        if ( $arg =~ /^QUOTEDPW:(.*)/ ) {
+                            my @val2 = string2list ( $1 );
+    
+                            $arg = $val2[0]  if (@val2);
+                       }
+                   }
+                   elsif (  $arg =~ /^(te?x?t?|pl?a?i?n?)(\s+\S+)?\s+(QUOTEDPW:.*)/ ||
+                            $arg =~ /^(te?x?t?|pl?a?i?n?)(\s+\S+)?\s(QUOTEDPW:.*|\S+)/ ) {
+                        $salt = substr($2,1);
+                        $plain = $3;
+
+                        if ( $salt =~ /^QUOTEDPW/ ) {
+                             $plain = $salt;
+                             $salt = '';
+                        }
+
+                        if ( $plain =~ /^QUOTEDPW:(.*)/ ) {
+                            my @val = string2list ( $1 );
+
+                            $plain = $val[0]  if (@val);
+                        }
+
+
+                        if ($salt eq '' || $salt eq '-' || $salt eq 'autosalt') {
+                            $salt = substr(md5_base64('dr:'.$mode_arg.':'.time()),0,7);
+                        }
+
+                        $arg = crypt($plain, '$1$' . $salt);
+print STDERR "DEBUG: crypt([$plain], [\$1\$$salt])\n";
+                   }
+                   elsif ( $arg =~ /^(\S+) (\S+)$/) { 
+                        print STDERR "Syntax error: should be [crypt-password <HASH>] or [crypt-password t [<SALT> <TEXT>]\n";
+                        return;
+                   }
+
+                   clean_attributes
+                          $mode_hash{'user_Check'},
+                          qw(Crypt-Password User-Password);
+
+                   push @{$mode_hash{'user_Check'}},
+                          {
+                              UserName => $mode_arg,
+                              Attribute => 'Crypt-Password',
+                              op        => '==',
+                              Value     => $arg
+                          };
+
+                   if ( $salt ne '' )
+                   {
+                       print "Crypt-Password == \"" .
+                                $arg . "\"\n" unless($ENV{IMPORTMODE});
+                   }
+
+                },
+                desc => "Specify password in crypt form, use  [crypt-password p <plaintext>] or [crypt-password <hash>]." }
+          ],
+#   'd' => [
+#            { name => "dialup", code => sub {
+#                push @{$mode_hash{'user_Groups'}}, 'dialup';
+#             } } 
+#          ],
+   'e' => [
+            { name => "exit", code => sub {
+                  if ($mode_written == 0) {
+                      my $in;
+
+                      while ( $in = $termpw->readline("Save changes and overwrite this user? ") ) {
+                           if ( $in =~ /^no?$/i ) {
+                                enter_mode( '', '' );
+                                return;
+                           }
+                           elsif ( $in =~ /^y(?:es?)?$/i ) {
+                                write_user ( );
+                                enter_mode( '', '');
+                                return;
+                           }
+                           else {
+                                 print STDERR "Invalid response.\n";
+                           }                           
+                      }
+                  }
+                  enter_mode('', '');
+              },
+              desc => "Return to command mode (changes not saved with 'write' are lost)" }
+          ],
+   '~' => [
+            { name => "~~~", code => sub {   
+                  if ( $mode_written == 0 ) { 
+                        write_user( );
+                  }
+                  enter_mode('', '');
+              },
+              desc => "" }
+          ],
+
+   'f' => [ { name => "flush", code => sub {
+                    my $arg = shift;
+
+                    if (!$arg || $arg ne 'user') {
+                         print STDERR "Unknown option [user::flush::${arg}], use 'flush user' to clear user record.\n";
+                    }
+                    $mode_written = 0;
+                    $mode_hash{'user_Check'} = [];
+                    $mode_hash{'user_Reply'} = [];
+                    $mode_hash{'user_Groups'} = [];
+                    $mode_hash{'user_Notes'} = [];
+            },
+              desc => "Start with a blank user; wipes out password, groups, etc -- does not save changes." } ],
+   'g' => [ { name => "gecos",
+                code => sub {
+                   my $arg = shift;
+
+                   SetAttrib($mode_hash{'user_Notes'}, 
+                             'User-Gecos', [], $mode_arg,
+                             $arg);
+                   $mode_written = 0;
+                },
+                desc => "Make a note of user gecos"
+            },
+
+            { name => "group", code => sub {
+               my $gr = shift;
+
+               $mode_written = 0;
+
+                if ( $gr ) {
+                     $mode_hash{'user_Groups'} = [grep { $_ ne $gr } @{$mode_hash{'user_Groups'}}];
+                }
+
+                push @{$mode_hash{'user_Groups'}}, $gr;
+             },
+                desc => "Add a RADIUS group to this user" } ],
+   'h' => [ { name => "help", code => \&general_help, desc => "/readline_defun_M-?   displays command help" }  ],
+   'l' => [ { name => "load", code => sub {
+                     my $arg = shift;
+
+                     unless ( $arg =~ /^\S+$/) {
+                          print STDERR "Usage: load <username>\n";
+                          return;
+                     }
+
+                     $mode_written = 0;
+                     load_user($arg);
+            },
+                desc => "Load/revert the user (for taking another user as a template)" } ],
+
+   'n' => [
+            {
+                 name => "noattr_",
+                 code => sub{ print STDERR "Usage: noattr_{check,reply} <ATTR> [<OP> [<ARG>]]\n"; },
+                 desc => ""
+            },
+            {  name => "noattr_check",
+               code => sub{
+                        my ($attr, $op, $arg) = split(/ /, shift);
+
+                        my $x;
+
+                        for $x (@{$mode_hash{'user_Check'}}) {
+                                next if $x->{'op'} eq 'SKIP';
+
+                                if ( $x->{'Attribute'} eq $attr  ) {
+                                     if ( !defined($op) || $x->{'op'} eq $op ) {
+                                         if ( !defined($arg) || $x->{'Value'} eq $arg ) {
+                                             $x->{'op'} = 'SKIP';
+                                         }
+                                     }
+                                }
+                        }
+                     },
+               desc => ""
+            },
+            {  name => "noattr_reply",
+               code => sub{
+                        my ($attr, $op, $arg) = split(/ /, shift);
+
+                        my $x;
+
+                        for $x (@{$mode_hash{'user_Reply'}}) {
+                                next if $x->{'op'} eq 'SKIP';
+
+                                if ( $x->{'Attribute'} eq $attr  ) {
+                                     if ( !defined($op) || $x->{'op'} eq $op ) {
+                                         if ( !defined($arg) || $x->{'Value'} eq $arg ) {
+                                             $x->{'op'} = 'SKIP';
+                                         }
+                                     }
+                                }
+                        }
+                     },
+               desc => ""
+            },
+            {  name => "noattr_note",
+               code => sub{
+                        my ($attr, $op, $arg) = split(/ /, shift);
+
+                        my $x;
+
+                        for $x (@{$mode_hash{'user_Notes'}}) {
+                                next if $x->{'op'} eq 'SKIP';
+
+                                if ( $x->{'Attribute'} eq $attr  ) {
+                                     if ( !defined($op) || $x->{'op'} eq $op ) {
+                                         if ( !defined($arg) || $x->{'Value'} eq $arg ) {
+                                             $x->{'op'} = 'SKIP';
+                                         }
+                                     }
+                                }
+                        }
+                     },
+               desc => ""
+            }
+          ],
+
+   'p' => [ { name => "password", 
+                code => sub {
+                   my $arg = shift;
+
+                   if ( $arg =~ /^QUOTEDPW:(.*)/ ) {
+                        my @val = string2list ( $1 );                        
+
+                        $arg = $val[0]  if (@val);
+                   }
+
+                   $mode_written = 0;
+                   clean_attributes
+                          $mode_hash{'user_Check'},
+                          qw(Crypt-Password User-Password);
+
+                   push @{$mode_hash{'user_Check'}},
+                          {
+                              UserName => $mode_arg,
+                              Attribute => 'User-Password',
+                              op        => '==',
+                              Value     => $arg
+                          };
+                },
+                desc => "Replace the user password (store as plaintext)"
+            } ],
+   'q' => [
+            { name => "quit", code => sub {
+                  if ($mode_written == 0) {
+                      my $in;
+
+                      while ( $in = $termpw->readline("Save changes and create/overwrite this user (changes will be discarded if you type no)? ") ) {
+                           if ( $in =~ /^no?$/i ) {
+                                enter_mode( '', '' );
+                                exit(0);
+                                return;
+                           }
+                           elsif ( $in =~ /^y(?:es?)?$/i ) {
+                                write_user ( );
+                                enter_mode( '', '');
+                                exit(0);
+                                return;
+                           }
+                           else {
+                                 print STDERR "Invalid response; yes or no please.\n";
+                           }
+                      }
+                  }
+                  enter_mode('', '');
+                  exit(0);
+              },
+              desc => "Exit the editor/tool" }
+          ],
+   '-' => [ { name => "--", code => sub{}} ],
+   's' => [
+             { name => "show", code => \&show_mode_user, desc => "Display the effect of previous commands" },
+             { name => "shell",
+                code => sub {
+                   my $arg = shift;
+
+                   SetAttrib($mode_hash{'user_Notes'},
+                             'User-Shell-Was', [], $mode_arg,
+                             $arg);
+                   $mode_written = 0;
+                },
+                desc => "Make a note of user shell"
+            },
+          ],
+   'u' => [
+            { name => "ungroup", code => sub {
+                my $arg = shift;
+
+                if ($arg && $arg ne '*') {
+                    unless ( grep { $_ eq $arg } @{$mode_hash{'user_Groups'}} ) {
+                        print STDERR "WARNING: user is not a member of any group titled \"${arg}\".\n"
+                         unless($ENV{SILENTQUERY});
+                    }
+
+                    $mode_written = 0;
+                    $mode_hash{'user_Groups'} = [grep { $_ ne $arg } @{$mode_hash{'user_Groups'}}];
+                } elsif ($arg eq '*') {
+                    $mode_written = 0;
+                    $mode_hash{'user_Groups'} = [];
+                } else {
+                    print "Usage: ungroup <group_name> -- to ungroup a user\n";
+                    print "Usage: ungroup * -- to remove a user from all groups\n";
+                    print "\n\nThis command by itself does not write any changes.\n\n";
+                }
+             },
+                desc => "Remove a RADIUS group from this user" } ],
+
+   'w' => [ { name => "write", code => sub{
+                               write_user( );
+                              $mode_written = 1;
+            },
+               desc => "Write this user out to the database (purges/overwrites existing user data)" } ]
+};
+
+
+%commands = ();
+
+$commands{'s'} = [
+                   {name => "show", code => \&show_command, desc => "Display junk; use: show user  to list users,  show user <username>, ...  show user :<text>  to search"}
+                 ];
+
+$commands{'e'} = [ 
+                   {name => "exit", code => sub{exit(0);}, desc => "Finished" }
+                 ];
+
+$commands{'h'} = [
+                   { name => "help",
+                     code => \&general_help,
+                     desc => "/readline_defun_C-?   displays command help"
+                   }
+                 ];
+
+$commands{'t'} = [
+                    { name => "try",
+                      code => sub {
+                                     my $radtest = '/usr/bin/radtest';
+                                     my $arg = shift;
+
+                                     $arg = '' if ($arg !~ /^[\/@a-zA-Z0-9\._ -]*$/);
+                                     my ($user, $pass, $ppp, $nasname) = split(/ /, $arg);
+
+                                     if (!$user || !$pass) {
+                                         print STDERR "Usage: try <user> <password> [<ppphint>] [<nasname>]\n";
+                                         return;
+                                     }
+
+                                     open R, "$radtest $user $pass $RADIUS{server} 10 $RADIUS{secret} $ppp $nasname|"
+                                        || warn "Error running $radtest";
+
+                                     print while(<R>);
+
+                                     close R;
+                                  },
+                      desc => "Invoke radtest, use:    try <username> <password>",
+                    }
+                 ];
+
+$commands{'u'} = [ 
+                    { name => "user",
+                      code => \&user_command,
+                      desc => "Enter a user editor instance;  use: user <username>",
+                      subtable => $user_commands,
+                    },
+                 ];
+
+
+sub find_command
+{
+    my $cmds = shift;
+    my $name = shift;
+    my $mode = shift;
+    my $ch = substr($name,0, 1);
+
+    $ch =~ tr/A-Z/a-z/;
+
+    for ( @{$cmds->{$ch}} ) {
+          if ( (substr($_->{name},0,length($name)) eq $name) &&
+              ((!$mode && !$_->{mode}) || ($mode eq $_->{mode})))
+          {
+               return $_;
+          }
+    }
+  return undef;
+}
+
+sub find_sublevel
+{
+    my $root = shift;
+    my $m = shift;
+    my @path = split(/\//, $m);
+    my $p;
+
+    if (!@path) {
+        return $root;
+    }
+
+    for $p (@path){
+         if ($p eq '')  {
+             return $root;
+         }
+
+         $root = find_command($root, $p);
+
+         if ( !defined($root) || !$root->{subtable} ) {
+              return {};
+         }
+    }
+
+    return $root->{subtable};
+}
+
+sub promptstr
+{
+  if ($ENV{NOPROMPTMODE}) {
+         return '';
+  }
+
+  if ($ENV{IMPORTMODE}) {
+         return '> ';
+  }
+  return 'rad' . $modestr{$mode} . ($promptchar{$mode}||$promptchar{''}) . ' ';
+}
+
+sub command_completions
+{
+  my ($text, $line, $start) = @_;
+  my $name = '';
+  my $mode = undef;
+  my @list = qw();
+  my $m = 0;
+
+
+  if ( $start == 0 || $start < $m ) {
+      for $ch (keys %commands) {
+           for ( @{$commands{$ch}} ) {
+                 if ( $_->{name} =~ /^$name/  &&
+                     ((!$mode && !$_->{mode}) || ($mode eq $_->{mode})))
+                 {
+                      push @list, $_->{name};
+                 }
+            }
+      }
+  }
+
+  
+#    my ();
+  return @list;
+}
+
+
+while ( defined ($input = $term->readline(promptstr())) ) {
+  if ( $input =~ /^\s*(\S+)(?:\s+(.*))?/ ) {
+      my $sublevel = find_sublevel(\%commands, $mode);
+      my $cmd = find_command($sublevel, $1);
+      my $argtext = $2 || ''; 
+
+      if ( $cmd ) {
+           &{$cmd->{code}}($argtext);
+      } else {
+           print "Invalid command: $1\n";
+      }
+  }
+}
+$term->set_signals;
+
+sub general_help
+{
+  my $ch;
+  my $q = shift; #$term->Attribs->{line_buffer};
+  my $sublevel = find_sublevel(\%commands, $mode);
+
+  if ($q eq '')
+  {
+     print "\nCommands: \n";
+     for $ch (keys %{$sublevel}) {
+          for ( @{$sublevel->{$ch}} ) {
+                 next if defined($_->{desc}) && $_->{desc} eq '';
+                 printf "   %-18s %-50s\n",  $_->{name}, $_->{desc};
+          }
+     }
+  }
+}
+
+sub context_help
+{
+     my $self = shift;
+     my $q = $term->Attribs->{line_buffer};
+
+     general_help($q);
+
+     print "\n";
+     $term->on_new_line;
+}
+
+
+sub user_command
+{
+     my $arg = shift;
+
+     if ( $arg !~ /^[\/@a-zA-Z0-9\._-]+$/ ) {
+         print "Usage: user <username>\n";
+         print '   username should be of the form ^[a-zA-Z0-9\\._-+]$' . "\n";
+         return;
+     }
+
+     enter_mode('user', $arg);
+     load_user($arg);
+}
+
+
+sub show_sub_user
+{
+     my $arg = shift;
+     my $q_users = $dbh->prepare(q|SELECT DISTINCT UserName from radcheck|);
+     my $row; 
+     my $filt = '';
+     my $atfilt = '';
+     my $atpart = '';
+     my $i=0;
+
+     if ( $arg =~ /^[^ \t:@]/ ) {
+           if ( $mode eq '' ) {
+               load_user($arg);
+           } else {
+               print "ERROR: Cannot load user from this substate\n";
+           }
+           return;
+     }
+
+     $q_users->execute;
+
+     if ( $arg =~ /^:([^@ ]+)(?:@(.*))?/ || 
+          $arg =~ /^:(\S+)()/) {
+            $filt = $1;
+
+            $atfilt = '';
+            $atfilt = '@' . $2 if ( $2 ne '' );
+     }
+     elsif ( $arg =~ /^(@\S+)/ ) {
+            $atfilt = $1;
+     }
+
+     while($row = $q_users->fetchrow_hashref) {
+         next if ($filt && lc(substr($row->{'UserName'},0,length($filt))) ne lc($filt));
+         $atpart = '';
+         if ($row->{'UserName'} =~ /(@\S+)/) { $atpart = $1; }
+         if ($atfilt ne '@@') {
+              next if ($atfilt && lc(substr($atpart,0,length($atfilt))) ne lc($atfilt));
+         } elsif ($atpart ne '') {
+              next;
+         }
+
+         printf "%-39s", $row->{'UserName'};
+         printf "\t";
+
+         print "\n" if (++$i % 2 == 0);
+     }
+     print "\n\n";
+}
+
+sub show_command
+{
+      my $argval = shift;
+      my ($argl,$argr,$found) = ('','',0);
+      my @subcommands = ( 
+                 { name => "user", code => \&show_sub_user }
+                        );
+
+      if ( $argval =~ /^(\S+)(?:\s+(\S+))?/ ) {
+           $argl = $1;
+           $argr = $2;
+
+           for( @subcommands ) {
+               if (substr($_->{'name'},0,length($argl)) eq $argl) {
+                   &{$_->{'code'}}($argr);
+
+                   $found=1;
+               }
+           }
+           if ( $found == 0 ) { goto show_USAGE; }
+      }
+      else  {
+          show_USAGE:
+          print "Usage: show <type> ...\n";
+
+          for( sort{ $a->{'name'} cmp $b->{'name'} } @subcommands ) {
+              print  "      " . $a->{'name'} . "\n";
+            }
+
+           print "   Where type is one of: \n";
+           for( @subcommands ) {
+                   print "          " .$_->{'name'} . "\n";
+           }
+           print "\n\n";
+      }
+}
+

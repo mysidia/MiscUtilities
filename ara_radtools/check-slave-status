@@ -1,0 +1,15 @@
+#!/bin/sh
+
+# Copyright (C) 2008 Mysidia 
+
+
+set -x
+SSL_KEY=/etc/ssl-mysql/server.key
+SSL_CERT=/etc/ssl-mysql/server.crt
+SQLHOST=
+UNAME=
+PASSW=
+
+/usr/bin/mysql -h $SQLHOST -u $UNAME -p --ssl-key=${SSL_KEY} --ssl-cert=${SSL_CERT} --ssl-ca=/etc/ssl-mysql/cacert.pem --password=$PASSW -e 'show slave status\G'
+
+exit $?
