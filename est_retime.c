@@ -177,7 +177,7 @@ main() {
    setenv("TZ", "US/Central", 1);
    tzset();
 
-   fprintf(stderr, "#megabytes_retention = %d\n#start_time = %s\n#tz: US/Central\n#8hour target RTP retention VS estimated actual\n#Date     Time      Hours_RTP_Retained\n", megabytes_retention, start);
+   fprintf(stderr, "#megabytes_retention = %d\n#start_time = %s\n#tz: US/Central\n#Tgt retention VS est actual\n#Date     Time      Hours_Retained\n", megabytes_retention, start);
    
    memset( &parsed_timestamp, '\0', sizeof parsed_timestamp );
    
