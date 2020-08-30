@@ -7,8 +7,10 @@
 # echo '1 * * * * /root/sample_reusage.sh ' >> /etc/crontab
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 VSPOOL=/var/spool/capturequeue/
-RCOUNT=/root/v/sample_rtpcount
-RRETAIN=/root/v/sample_rtpretain
+
+# Count result files
+RCOUNT=/root/v/sample_count
+RRETAIN=/root/v/sample_retain
 
 du -ms ${VSPOOL}`date --date='1 hour ago'  +%Y-%m-%d/%H/*/A`  >> /root/v/sample_rusage`date +%Y_%m_%d`
 du -ms ${VSPOOL}`date --date='1 hour ago'  +%Y-%m-%d/%H/*/B`  >> /root/v/sample_gusage`date +%Y_%m_%d`
